@@ -3,11 +3,14 @@ package business_unit_company
 import (
 	"context"
 	"errors"
+	"regexp"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/labd/terraform-provider-commercetools/commercetools"
 	"github.com/labd/terraform-provider-commercetools/internal/sharedtypes"
-	"regexp"
-	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -98,6 +101,14 @@ func (b *companyResource) Schema(_ context.Context, req resource.SchemaRequest, 
 				MarkdownDescription: "Index of the entry in addresses to set as the default billing address.",
 				Optional:            true,
 			},
+			"customer_groups": schema.ListAttribute{
+				MarkdownDescription: "List of customerGroups assigned to this company.",
+				Optional:            true,
+				ElementType:         types.StringType,
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
+				},
+			},
 		},
 		Blocks: map[string]schema.Block{
 			"store":   sharedtypes.StoreKeyReferenceBlockSchema,
@@ -165,7 +176,7 @@ func (b *companyResource) Create(ctx context.Context, req resource.CreateRequest
 	var bu *platform.BusinessUnit
 	err = retry.RetryContext(ctx, 20*time.Second, func() *retry.RetryError {
 		var err error
-		bu, err = b.client.BusinessUnits().Post(draft).Execute(ctx)
+		bu, err = b.client.BusinessUnits().Post(draft).Expand([]string{"customerGroupAssignments[*].customerGroup"}).Execute(ctx)
 
 		return utils.ProcessRemoteError(err)
 	})
@@ -202,7 +213,7 @@ func (b *companyResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	bu, err := b.client.BusinessUnits().WithId(state.ID.ValueString()).Get().Execute(ctx)
+	bu, err := b.client.BusinessUnits().WithId(state.ID.ValueString()).Get().Expand([]string{"customerGroupAssignments[*].customerGroup"}).Execute(ctx)
 	if err != nil {
 		if errors.Is(err, platform.ErrNotFound) {
 			res.State.RemoveResource(ctx)
@@ -277,6 +288,7 @@ func (b *companyResource) Update(ctx context.Context, req resource.UpdateRequest
 		bu, err = b.client.BusinessUnits().
 			WithId(state.ID.ValueString()).
 			Post(input).
+			Expand([]string{"customerGroupAssignments[*].customerGroup"}).
 			Execute(ctx)
 
 		return utils.ProcessRemoteError(err)
